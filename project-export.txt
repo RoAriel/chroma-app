@@ -1,0 +1,1795 @@
+==================================================
+  CHROMALAB — PROJECT EXPORT
+  lun 16 mar 2026 20:55:24 -03
+==================================================
+
+## ESTRUCTURA
+```
+./eslint.config.js
+./index.html
+./postcss.config.js
+./src/App.jsx
+./src/Chromalab.jsx
+./src/components/AppHeader.jsx
+./src/components/ColorCard.jsx
+./src/components/CopyButton.jsx
+./src/components/DropZone.jsx
+./src/components/ImagePreview.jsx
+./src/components/PaletteHistory.jsx
+./src/components/PaletteResults.jsx
+./src/components/PaletteStrip.jsx
+./src/components/SkeletonCard.jsx
+./src/components/ThemeDrawer.jsx
+./src/hooks/themeContext.js
+./src/hooks/themePresets.js
+./src/hooks/ThemeProvider.jsx
+./src/hooks/useColorExtractor.js
+./src/hooks/usePaletteHistory.js
+./src/hooks/useTheme.jsx
+./src/index.css
+./src/main.jsx
+./src/utils/colorUtils.js
+./src/utils/exportUtils.js
+./src/utils/kmeans.js
+./src/utils/kmeans.worker.js
+./tailwind.config.js
+./vite.config.js
+```
+
+==================================================
+## FILE: ./eslint.config.js
+```
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import { defineConfig, globalIgnores } from 'eslint/config'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{js,jsx}'],
+    extends: [
+      js.configs.recommended,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        ecmaFeatures: { jsx: true },
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+])
+
+```
+
+==================================================
+## FILE: ./index.html
+```
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chromalab — Extractor de Paletas</title>
+    <meta name="description" content="Chromalab — Extrae paletas de color perfectas de cualquier imagen. Obtené códigos HEX, RGB y HSL al instante." />
+<meta name="theme-color" content="#0984E3" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+```
+
+==================================================
+## FILE: ./postcss.config.js
+```
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+```
+
+==================================================
+## FILE: ./src/App.jsx
+```
+import ThemeProvider from "./hooks/ThemeProvider";
+import Chromalab from "./Chromalab";
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <Chromalab />
+    </ThemeProvider>
+  );
+}
+
+```
+
+==================================================
+## FILE: ./src/Chromalab.jsx
+```
+import { useState, useRef, useCallback, lazy, Suspense } from "react";
+import AppHeader from "./components/AppHeader";
+import ImagePreview from "./components/ImagePreview";
+import DropZone from "./components/DropZone";
+import PaletteResults from "./components/PaletteResults";
+import PaletteHistory from "./components/PaletteHistory";
+import SkeletonCard from "./components/SkeletonCard";
+import { useColorExtractor } from "./hooks/useColorExtractor";
+import { usePaletteHistory } from "./hooks/usePaletteHistory";
+import { useTheme } from "./hooks/useTheme";
+
+// Carga diferida — el bundle de ThemeDrawer solo se descarga
+// cuando el usuario abre el panel por primera vez
+const ThemeDrawer = lazy(() => import("./components/ThemeDrawer"));
+
+export default function Chromalab() {
+  const [imageUrl, setImageUrl] = useState(null);
+  const [colorCount, setColorCount] = useState(6);
+  const [showHistory, setShowHistory] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const imgRef = useRef(null);
+  const { colors, loading, extract, reset } = useColorExtractor();
+  const { history, savePalette, deletePalette, clearHistory } = usePaletteHistory();
+  const { theme } = useTheme();
+  const t = theme.colors;
+
+  const handleFile = useCallback((file) => {
+    setImageUrl(URL.createObjectURL(file));
+    reset();
+  }, [reset]);
+
+  const handleClearImage = useCallback(() => {
+    setImageUrl(null);
+    reset();
+  }, [reset]);
+
+  const handleImageLoad = useCallback(() => {
+    extract(imgRef.current, colorCount);
+  }, [extract, colorCount]);
+
+  return (
+    <div
+      className="min-h-screen transition-colors duration-300"
+      style={{ backgroundColor: t.background, color: t.text }}
+    >
+      {/* Decoración de fondo */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div
+          className="absolute top-[-15%] left-[-10%] w-[55vw] h-[55vw] rounded-full opacity-[0.07]"
+          style={{ background: `radial-gradient(circle, ${t.accent}, transparent 70%)` }}
+        />
+        <div
+          className="absolute bottom-[-15%] right-[-10%] w-[40vw] h-[40vw] rounded-full opacity-[0.07]"
+          style={{ background: `radial-gradient(circle, ${t.accentSecondary}, transparent 70%)` }}
+        />
+      </div>
+
+      {/* ThemeDrawer — lazy loaded */}
+      {drawerOpen && (
+        <Suspense fallback={null}>
+          <ThemeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+        </Suspense>
+      )}
+
+      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-12 sm:py-16 pb-24">
+
+        <AppHeader
+          showHistory={showHistory}
+          historyCount={history.length}
+          onToggleHistory={() => setShowHistory((v) => !v)}
+          onOpenDrawer={() => setDrawerOpen(true)}
+        />
+
+        {/* Panel de historial */}
+        {showHistory && (
+          <div
+            className="mb-8 rounded-2xl border p-6"
+            style={{ borderColor: t.border, backgroundColor: t.surface }}
+          >
+            <PaletteHistory
+              history={history}
+              onDelete={deletePalette}
+              onClear={clearHistory}
+              onLoad={() => setShowHistory(false)}
+            />
+          </div>
+        )}
+
+        {/* Drop zone — visible solo si no hay imagen cargada */}
+        {!imageUrl && (
+          <div className="mb-8">
+            <DropZone onFile={handleFile} />
+          </div>
+        )}
+
+        {/* Preview + controles — visible cuando hay imagen */}
+        {imageUrl && (
+          <ImagePreview
+            imgRef={imgRef}
+            imageUrl={imageUrl}
+            colorCount={colorCount}
+            loading={loading}
+            onImageLoad={handleImageLoad}
+            onClear={handleClearImage}
+            onCountChange={setColorCount}
+            onExtract={() => extract(imgRef.current, colorCount)}
+          />
+        )}
+
+        {/* Skeleton mientras procesa */}
+        {loading && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 mb-8">
+            {Array.from({ length: colorCount }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
+        )}
+
+        {/* Resultados */}
+        {!loading && colors.length > 0 && (
+          <PaletteResults colors={colors} onSave={savePalette} />
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+==================================================
+## FILE: ./src/components/AppHeader.jsx
+```
+import { useTheme } from "../hooks/useTheme";
+
+export default function AppHeader({ showHistory, historyCount, onToggleHistory, onOpenDrawer }) {
+    const { theme } = useTheme();
+    const t = theme.colors;
+    const mutedText = `${t.text}55`;
+
+    return (
+        <header className="mb-14 relative flex flex-col items-center text-center">
+
+            {/* Botones top-right */}
+            <div className="absolute top-0 right-0 flex gap-2">
+                <button
+                    onClick={onToggleHistory}
+                    className="px-3 py-2 rounded-xl border text-xs font-mono transition-all duration-200"
+                    style={{
+                        borderColor: showHistory ? t.accent : t.border,
+                        backgroundColor: showHistory ? `${t.accent}20` : t.surface,
+                        color: showHistory ? t.accent : mutedText,
+                    }}
+                >
+                    🗂 <span className="hidden sm:inline">Historial </span>
+                    {historyCount > 0 && `(${historyCount})`}
+                </button>
+
+                <button
+                    onClick={onOpenDrawer}
+                    className="px-3 py-2 rounded-xl border text-xs font-mono transition-all duration-200 hover:scale-105"
+                    style={{ borderColor: t.border, backgroundColor: t.surface, color: mutedText }}
+                    title="Personalizar tema"
+                >
+                    🎨
+                </button>
+            </div>
+
+            {/* Badge */}
+            <div
+                className="inline-flex items-center gap-2 mb-5 px-4 py-1.5 rounded-full border text-xs font-mono tracking-widest uppercase"
+                style={{
+                    borderColor: `${t.accent}40`,
+                    backgroundColor: `${t.accent}10`,
+                    color: t.accent,
+                }}
+            >
+                <span
+                    className="w-1.5 h-1.5 rounded-full animate-pulse"
+                    style={{ backgroundColor: t.accentSecondary }}
+                />
+                Color Harvest Tool
+            </div>
+
+            {/* Title */}
+            <h1 className="text-5xl sm:text-6xl font-bold tracking-tight mb-3">
+                <span style={{ color: t.accent }}>Chroma</span>
+                <span style={{ color: t.accentSecondary }}>lab</span>
+            </h1>
+
+            {/* Subtitle */}
+            <p className="text-sm sm:text-base font-mono" style={{ color: mutedText }}>
+                Extrae paletas de color perfectas de cualquier imagen
+            </p>
+        </header>
+    );
+}
+```
+
+==================================================
+## FILE: ./src/components/ColorCard.jsx
+```
+import { toHex, toRgb, toHsl, isDark } from "../utils/colorUtils";
+import { useTheme } from "../hooks/useTheme";
+import CopyButton from "./CopyButton";
+
+export default function ColorCard({ color, index }) {
+  const { theme } = useTheme();
+  const t = theme.colors;
+
+  const hex = toHex(color).toUpperCase();
+  const rgb = toRgb(color);
+  const hsl = toHsl(color);
+  const darkSwatch = isDark(color);
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden border transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      style={{ borderColor: t.border, backgroundColor: t.surface }}
+    >
+      {/* Swatch */}
+      <div
+        className="relative h-24 w-full flex items-end justify-between p-2"
+        style={{ backgroundColor: hex }}
+      >
+        <span
+          className="text-xs font-mono font-semibold opacity-70"
+          style={{ color: darkSwatch ? "#F5F6FA" : "#1E272E" }}
+        >
+          #{index + 1}
+        </span>
+        <CopyButton text={hex} />
+      </div>
+
+      {/* Info */}
+      <div className="p-3 space-y-2">
+        {/* HEX — siempre visible */}
+        <p className="font-mono font-semibold text-sm tracking-wide truncate" style={{ color: t.text }}>
+          {hex}
+        </p>
+
+        {/* RGB y HSL — ocultos en mobile, visibles en sm+ */}
+        <div className="hidden sm:flex flex-col space-y-1">
+          {[
+            { label: "RGB", value: rgb },
+            { label: "HSL", value: hsl },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between gap-1">
+              <span className="text-xs font-mono shrink-0" style={{ color: `${t.accent}AA` }}>
+                {label}
+              </span>
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="text-xs font-mono truncate" style={{ color: `${t.text}70` }}>
+                  {value}
+                </span>
+                <CopyButton text={value} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* En mobile solo mostramos botones de copia compactos */}
+        <div className="flex sm:hidden gap-1">
+          <CopyButton text={rgb} className="flex-1 text-center" />
+          <CopyButton text={hsl} className="flex-1 text-center" />
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+==================================================
+## FILE: ./src/components/CopyButton.jsx
+```
+import { useState } from "react";
+import { useTheme } from "../hooks/useTheme";
+
+export default function CopyButton({ text, className = "" }) {
+  const [copied, setCopied] = useState(false);
+  const { theme } = useTheme();
+  const t = theme.colors;
+
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={`transition-all duration-200 text-xs font-mono px-2 py-0.5 rounded border ${className}`}
+      style={
+        copied
+          ? { backgroundColor: t.accentSecondary, borderColor: t.accentSecondary, color: "#fff" }
+          : { borderColor: `${t.text}25`, color: `${t.text}60` }
+      }
+    >
+      {copied ? "✓ Copiado" : "Copiar"}
+    </button>
+  );
+}
+
+```
+
+==================================================
+## FILE: ./src/components/DropZone.jsx
+```
+import { useState, useRef } from "react";
+import { useTheme } from "../hooks/useTheme";
+
+export default function DropZone({ onFile }) {
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState(null);
+  const inputRef = useRef(null);
+  const { theme } = useTheme();
+  const t = theme.colors;
+
+  const handleFile = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError(`"${file.name}" no es una imagen válida. Usá JPG, PNG, WEBP, GIF o SVG.`);
+      setTimeout(() => setError(null), 4000);
+      return;
+    }
+    setError(null);
+    onFile(file);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        className="cursor-pointer border-2 border-dashed rounded-2xl p-16 text-center select-none"
+        style={{
+          borderColor: error ? "#ff6b6b" : dragging ? t.accent : t.border,
+          backgroundColor: error
+            ? "rgba(255,107,107,0.05)"
+            : dragging
+              ? `${t.accent}0A`
+              : t.surface,
+          transform: dragging ? "scale(1.01)" : "scale(1)",
+          transition: "all 0.3s ease",
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => handleFile(e.target.files[0])}
+        />
+        <div className="flex flex-col items-center gap-4">
+          <div
+            className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl"
+            style={{
+              background: error
+                ? "linear-gradient(135deg, #ff6b6b, #ee5a24)"
+                : `linear-gradient(135deg, ${t.accent} 0%, ${t.accentSecondary} 100%)`,
+              transform: dragging ? "scale(1.1)" : "scale(1)",
+              transition: "transform 0.3s ease",
+            }}
+          >
+            {error ? "⚠️" : "🎨"}
+          </div>
+          <div>
+            <p className="text-xl font-semibold mb-1" style={{ color: t.text }}>
+              {dragging ? "Suelta la imagen aquí" : "Arrastra tu imagen aquí"}
+            </p>
+            <p className="text-sm font-mono" style={{ color: `${t.text}50` }}>
+              o haz clic para seleccionar · JPG, PNG, WEBP, GIF, SVG
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Error message */}
+      {error && (
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-mono"
+          style={{
+            backgroundColor: "rgba(255,107,107,0.1)",
+            border: "1px solid rgba(255,107,107,0.3)",
+            color: "#ff6b6b",
+          }}
+        >
+          <span className="shrink-0">✕</span>
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+==================================================
+## FILE: ./src/components/ImagePreview.jsx
+```
+import { useTheme } from "../hooks/useTheme";
+
+const COUNT_OPTIONS = [4, 6, 8, 10, 12];
+
+export default function ImagePreview({ imgRef, imageUrl, colorCount, loading, onImageLoad, onClear, onCountChange, onExtract }) {
+    const { theme } = useTheme();
+    const t = theme.colors;
+    const mutedText = `${t.text}55`;
+
+    return (
+        <div className="mb-10">
+            {/* Imagen con overlay para cambiarla */}
+            <div
+                className="rounded-2xl overflow-hidden border mb-2 relative group"
+                style={{ borderColor: t.border, backgroundColor: t.surface }}
+            >
+                <img
+                    ref={imgRef}
+                    src={imageUrl}
+                    alt="Preview"
+                    className="w-full max-h-80 object-contain"
+                    onLoad={onImageLoad}
+                />
+                <div
+                    className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                    style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+                >
+                    <button
+                        onClick={onClear}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 hover:scale-105"
+                        style={{ backgroundColor: "rgba(255,107,107,0.9)", color: "#fff" }}
+                    >
+                        🗑 Cambiar imagen
+                    </button>
+                </div>
+            </div>
+
+            <p className="text-xs font-mono text-center mb-5" style={{ color: mutedText }}>
+                Pasá el cursor sobre la imagen para cambiarla
+            </p>
+
+            {/* Controles */}
+            <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-xs font-mono uppercase tracking-widest" style={{ color: mutedText }}>
+                        Colores
+                    </span>
+                    <div className="flex gap-1.5">
+                        {COUNT_OPTIONS.map((n) => (
+                            <button
+                                key={n}
+                                onClick={() => onCountChange(n)}
+                                className="w-9 h-9 rounded-lg text-sm font-mono font-semibold transition-all duration-200 border"
+                                style={
+                                    colorCount === n
+                                        ? {
+                                            backgroundColor: t.accent,
+                                            borderColor: t.accent,
+                                            color: "#fff",
+                                            boxShadow: `0 4px 15px ${t.accent}50`,
+                                        }
+                                        : {
+                                            borderColor: t.border,
+                                            backgroundColor: t.surface,
+                                            color: mutedText,
+                                        }
+                                }
+                            >
+                                {n}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <button
+                    onClick={onExtract}
+                    disabled={loading}
+                    className="ml-auto flex items-center gap-2.5 px-6 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed hover:scale-105"
+                    style={{
+                        background: `linear-gradient(135deg, ${t.accent}, ${t.accentSecondary})`,
+                        color: "#fff",
+                        boxShadow: loading ? "none" : `0 4px 20px ${t.accent}40`,
+                    }}
+                >
+                    {loading ? (
+                        <>
+                            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                            Analizando…
+                        </>
+                    ) : (
+                        <><span>🎨</span> Extraer paleta</>
+                    )}
+                </button>
+            </div>
+        </div>
+    );
+}
+```
+
+==================================================
+## FILE: ./src/components/PaletteHistory.jsx
+```
+import { toHex } from "../utils/colorUtils";
+import { useTheme } from "../hooks/useTheme";
+
+export default function PaletteHistory({ history, onDelete, onClear, onLoad }) {
+  const { theme } = useTheme();
+  const t = theme.colors;
+  const mutedText = `${t.text}50`;
+
+  if (history.length === 0) {
+    return (
+      <div className="text-center py-10 text-sm font-mono" style={{ color: mutedText }}>
+        No hay paletas guardadas aún
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-xs font-mono uppercase tracking-widest" style={{ color: t.accent }}>
+          {history.length} paleta{history.length !== 1 ? "s" : ""} guardada{history.length !== 1 ? "s" : ""}
+        </span>
+        <button
+          onClick={onClear}
+          className="text-xs font-mono transition-colors"
+          style={{ color: "rgba(255,100,100,0.7)" }}
+        >
+          Borrar todo
+        </button>
+      </div>
+
+      {history.map((entry) => (
+        <div
+          key={entry.id}
+          className="group rounded-xl border p-3 transition-all duration-200"
+          style={{ borderColor: t.border, backgroundColor: `${t.accent}08` }}
+        >
+          {/* Mini strip */}
+          <div
+            className="flex h-8 rounded-lg overflow-hidden mb-3 cursor-pointer"
+            onClick={() => onLoad(entry.colors)}
+            title="Cargar esta paleta"
+          >
+            {entry.colors.map((c, i) => (
+              <div key={i} className="flex-1" style={{ backgroundColor: toHex(c) }} />
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold leading-tight" style={{ color: t.text }}>
+                {entry.name}
+              </p>
+              <p className="text-xs font-mono mt-0.5" style={{ color: mutedText }}>
+                {entry.colors.length} colores ·{" "}
+                {new Date(entry.createdAt).toLocaleDateString("es-ES", {
+                  day: "2-digit",
+                  month: "short",
+                })}
+              </p>
+            </div>
+            <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => onLoad(entry.colors)}
+                className="text-xs font-mono transition-colors"
+                style={{ color: t.accent }}
+              >
+                Cargar
+              </button>
+              <button
+                onClick={() => onDelete(entry.id)}
+                className="text-xs font-mono transition-colors"
+                style={{ color: "rgba(255,100,100,0.7)" }}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+```
+
+==================================================
+## FILE: ./src/components/PaletteResults.jsx
+```
+import { useState } from "react";
+import ColorCard from "./ColorCard";
+import PaletteStrip from "./PaletteStrip";
+import CopyButton from "./CopyButton";
+import { useTheme } from "../hooks/useTheme";
+import { toHex, toRgb, toHsl } from "../utils/colorUtils";
+import { exportCSS, exportJSON, exportHex, exportSVG } from "../utils/exportUtils";
+
+const EXPORT_OPTIONS = [
+  { label: "CSS", fn: exportCSS },
+  { label: "JSON", fn: exportJSON },
+  { label: "HEX", fn: exportHex },
+  { label: "SVG", fn: exportSVG },
+];
+
+export default function PaletteResults({ colors, onSave }) {
+  const [activeTab, setActiveTab] = useState("cards");
+  const [paletteName, setPaletteName] = useState("");
+  const [saved, setSaved] = useState(false);
+  const { theme } = useTheme();
+  const t = theme.colors;
+  const mutedText = `${t.text}55`;
+
+  const handleSave = () => {
+    onSave(colors, paletteName.trim() || undefined);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div>
+      <PaletteStrip colors={colors} />
+
+      {/* Save row */}
+      <div
+        className="flex items-center gap-3 mb-6 p-4 rounded-xl border"
+        style={{ borderColor: t.border, backgroundColor: t.surface }}
+      >
+        <input
+          type="text"
+          value={paletteName}
+          onChange={(e) => setPaletteName(e.target.value)}
+          placeholder="Nombre de la paleta (opcional)"
+          className="flex-1 bg-transparent rounded-lg px-3 py-2 text-sm font-mono focus:outline-none border min-w-0"
+          style={{ borderColor: t.border, color: t.text }}
+        />
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 rounded-lg text-sm font-mono font-semibold transition-all duration-200 whitespace-nowrap border shrink-0"
+          style={
+            saved
+              ? { backgroundColor: t.accentSecondary, borderColor: t.accentSecondary, color: "#fff" }
+              : { backgroundColor: `${t.accent}18`, borderColor: `${t.accent}50`, color: t.accent }
+          }
+        >
+          {saved ? "✓ Guardada" : "💾 Guardar"}
+        </button>
+      </div>
+
+      {/* Tabs + Export */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-3">
+        <div
+          className="flex rounded-xl p-1 gap-1 border"
+          style={{ borderColor: t.border, backgroundColor: t.surface }}
+        >
+          {["cards", "list"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className="px-4 py-1.5 rounded-lg text-sm font-mono transition-all duration-200"
+              style={
+                activeTab === tab
+                  ? { backgroundColor: t.accent, color: "#fff" }
+                  : { color: mutedText }
+              }
+            >
+              {tab === "cards" ? "Tarjetas" : "Lista"}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          {EXPORT_OPTIONS.map(({ label, fn }) => (
+            <button
+              key={label}
+              onClick={() => fn(colors, paletteName.trim() || "palette")}
+              className="px-3.5 py-1.5 rounded-lg text-xs font-mono border transition-all duration-200"
+              style={{
+                borderColor: `${t.accent}35`,
+                backgroundColor: `${t.accent}0A`,
+                color: t.accent,
+              }}
+            >
+              ↓ {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Cards — grid responsive */}
+      {activeTab === "cards" && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          {colors.map((color, i) => (
+            <ColorCard key={i} color={color} index={i} />
+          ))}
+        </div>
+      )}
+
+      {/* List — tabla responsive */}
+      {activeTab === "list" && (
+        <div
+          className="rounded-2xl border overflow-x-auto"
+          style={{ borderColor: t.border, backgroundColor: t.surface }}
+        >
+          <table className="w-full min-w-[320px]">
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${t.border}` }}>
+                {["Muestra", "HEX", "RGB", "HSL", ""].map((h, i) => (
+                  <th
+                    key={i}
+                    className={`px-4 py-3 text-left text-xs font-mono uppercase tracking-widest
+                      ${h === "RGB" ? "hidden sm:table-cell" : ""}
+                      ${h === "HSL" ? "hidden md:table-cell" : ""}`}
+                    style={{ color: `${t.accent}AA` }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {colors.map((color, i) => {
+                const hex = toHex(color).toUpperCase();
+                return (
+                  <tr key={i} style={{ borderBottom: `1px solid ${t.border}50` }}>
+                    <td className="px-4 py-3">
+                      <div
+                        className="w-8 h-8 rounded-lg border shrink-0"
+                        style={{ backgroundColor: hex, borderColor: t.border }}
+                      />
+                    </td>
+                    <td className="px-4 py-3 font-mono text-sm font-semibold" style={{ color: t.text }}>
+                      {hex}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs hidden sm:table-cell" style={{ color: mutedText }}>
+                      {toRgb(color)}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs hidden md:table-cell" style={{ color: mutedText }}>
+                      {toHsl(color)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <CopyButton text={hex} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+==================================================
+## FILE: ./src/components/PaletteStrip.jsx
+```
+import { toHex, isDark } from "../utils/colorUtils";
+import { useTheme } from "../hooks/useTheme";
+
+export default function PaletteStrip({ colors }) {
+  const { theme } = useTheme();
+  const t = theme.colors;
+
+  return (
+    <div
+      className="flex h-20 rounded-xl overflow-hidden border mb-6"
+      style={{ borderColor: t.border }}
+    >
+      {colors.map((color, i) => {
+        const hex = toHex(color);
+        return (
+          <div
+            key={i}
+            className="flex-1 cursor-pointer relative group"
+            style={{
+              backgroundColor: hex,
+              transition: "flex 0.3s ease",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.flex = "2"}
+            onMouseLeave={(e) => e.currentTarget.style.flex = "1"}
+            title={hex.toUpperCase()}
+            onClick={() => navigator.clipboard.writeText(hex.toUpperCase()).catch(() => {})}
+          >
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <span
+                className="text-xs font-mono font-bold"
+                style={{ color: isDark(color) ? "#F5F6FA" : "#1E272E" }}
+              >
+                {hex.toUpperCase()}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+```
+
+==================================================
+## FILE: ./src/components/SkeletonCard.jsx
+```
+import { useTheme } from "../hooks/useTheme";
+
+export default function SkeletonCard() {
+    const { theme } = useTheme();
+    const t = theme.colors;
+
+    return (
+        <div
+            className="rounded-xl overflow-hidden border"
+            style={{ borderColor: t.border, backgroundColor: t.surface }}
+        >
+            <div className="h-24 w-full relative overflow-hidden" style={{ backgroundColor: t.border }}>
+                <div className="absolute inset-0 skeleton-shimmer" />
+            </div>
+            <div className="p-3 space-y-3">
+                <div className="h-4 w-24 rounded relative overflow-hidden" style={{ backgroundColor: t.border }}>
+                    <div className="absolute inset-0 skeleton-shimmer" />
+                </div>
+                <div className="h-3 w-32 rounded relative overflow-hidden" style={{ backgroundColor: t.border }}>
+                    <div className="absolute inset-0 skeleton-shimmer" />
+                </div>
+                <div className="h-3 w-28 rounded relative overflow-hidden" style={{ backgroundColor: t.border }}>
+                    <div className="absolute inset-0 skeleton-shimmer" />
+                </div>
+            </div>
+        </div>
+    );
+}
+```
+
+==================================================
+## FILE: ./src/components/ThemeDrawer.jsx
+```
+import { useState, useEffect, useRef } from "react";
+import { useTheme } from "../hooks/useTheme";
+import { PRESET_THEMES } from "../hooks/themePresets";
+
+// ─── Campos editables ────────────────────────────────────────────────────────
+const COLOR_FIELDS = [
+  { key: "background", label: "Fondo", icon: "■" },
+  { key: "surface", label: "Superficies", icon: "▣" },
+  { key: "accent", label: "Acento principal", icon: "●" },
+  { key: "accentSecondary", label: "Acento secundario", icon: "◉" },
+  { key: "text", label: "Texto", icon: "A" },
+  { key: "border", label: "Bordes", icon: "□" },
+];
+
+// ─── Mini preview de tema ────────────────────────────────────────────────────
+function ThemePreview({ colors }) {
+  return (
+    <div
+      className="w-full h-10 rounded-lg overflow-hidden flex"
+      style={{ backgroundColor: colors.background, border: `1px solid ${colors.border}` }}
+    >
+      <div className="flex-1" style={{ backgroundColor: colors.background }} />
+      <div className="w-6" style={{ backgroundColor: colors.accent }} />
+      <div className="w-4" style={{ backgroundColor: colors.accentSecondary }} />
+      <div className="w-3" style={{ backgroundColor: colors.surface }} />
+    </div>
+  );
+}
+
+// ─── Color picker row ────────────────────────────────────────────────────────
+function ColorRow({ field, value, onChange, theme }) {
+  const inputRef = useRef(null);
+
+  // Extraer hex limpio para el input type=color
+  const hexValue = value.startsWith("#") ? value : "#888888";
+
+  return (
+    <div
+      className="flex items-center gap-3 p-3 rounded-xl transition-colors"
+      style={{ backgroundColor: `${theme.colors.surface}` }}
+    >
+      {/* Swatch clickeable */}
+      <button
+        onClick={() => inputRef.current?.click()}
+        className="w-9 h-9 rounded-lg border-2 shrink-0 transition-transform hover:scale-105 cursor-pointer"
+        style={{
+          backgroundColor: value,
+          borderColor: theme.colors.border,
+        }}
+        title="Clic para cambiar color"
+      />
+
+      {/* Hidden native color input */}
+      <input
+        ref={inputRef}
+        type="color"
+        value={hexValue}
+        onChange={(e) => onChange(field.key, e.target.value)}
+        className="sr-only"
+      />
+
+      {/* Label */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold leading-tight" style={{ color: theme.colors.text }}>
+          {field.label}
+        </p>
+        <p className="text-xs font-mono mt-0.5" style={{ color: `${theme.colors.text}60` }}>
+          {value}
+        </p>
+      </div>
+
+      {/* Hex input directo */}
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (/^#[0-9A-Fa-f]{0,8}$/.test(v)) onChange(field.key, v);
+        }}
+        className="w-24 px-2 py-1 rounded-lg text-xs font-mono border bg-transparent focus:outline-none"
+        style={{
+          borderColor: theme.colors.border,
+          color: theme.colors.text,
+        }}
+        spellCheck={false}
+      />
+    </div>
+  );
+}
+
+// ─── ThemeDrawer principal ───────────────────────────────────────────────────
+export default function ThemeDrawer({ open, onClose }) {
+  const { theme, activeTheme, customColors, applyPreset, updateColor, resetToPreset } = useTheme();
+  const [tab, setTab] = useState("presets"); // "presets" | "custom"
+
+  // Cerrar con Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const hasCustom = !!customColors;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 transition-opacity duration-300"
+        style={{
+          backgroundColor: "rgba(0,0,0,0.5)",
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? "auto" : "none",
+          backdropFilter: open ? "blur(4px)" : "none",
+        }}
+        onClick={onClose}
+      />
+
+      {/* Drawer */}
+      <div
+        className="fixed top-0 right-0 h-full z-50 flex flex-col transition-transform duration-300 ease-in-out"
+        style={{
+          width: "360px",
+          transform: open ? "translateX(0)" : "translateX(100%)",
+          backgroundColor: theme.colors.background,
+          borderLeft: `1px solid ${theme.colors.border}`,
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-6 py-5 border-b shrink-0"
+          style={{ borderColor: theme.colors.border }}
+        >
+          <div>
+            <h2 className="text-base font-bold" style={{ color: theme.colors.text }}>
+              🎨 Personalizar tema
+            </h2>
+            <p className="text-xs font-mono mt-0.5" style={{ color: `${theme.colors.text}55` }}>
+              Los cambios aplican en tiempo real
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors text-lg"
+            style={{ backgroundColor: theme.colors.surface, color: theme.colors.text }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div
+          className="flex gap-1 mx-6 mt-4 mb-2 p-1 rounded-xl shrink-0"
+          style={{ backgroundColor: theme.colors.surface }}
+        >
+          {["presets", "custom"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="flex-1 py-2 rounded-lg text-sm font-mono transition-all duration-200"
+              style={
+                tab === t
+                  ? { backgroundColor: theme.colors.accent, color: "#fff" }
+                  : { color: `${theme.colors.text}70` }
+              }
+            >
+              {t === "presets" ? "Predefinidos" : "Personalizar"}
+            </button>
+          ))}
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+
+          {/* ── PRESETS ── */}
+          {tab === "presets" && (
+            <div className="space-y-3 mt-4">
+              {PRESET_THEMES.map((preset) => {
+                const isActive = activeTheme.id === preset.id && !hasCustom;
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyPreset(preset)}
+                    className="w-full text-left rounded-xl border p-4 transition-all duration-200 hover:scale-[1.01]"
+                    style={{
+                      borderColor: isActive ? theme.colors.accent : theme.colors.border,
+                      backgroundColor: isActive
+                        ? `${theme.colors.accent}15`
+                        : theme.colors.surface,
+                    }}
+                  >
+                    <ThemePreview colors={preset.colors} />
+                    <div className="flex items-center justify-between mt-3">
+                      <div>
+                        <p
+                          className="text-sm font-bold"
+                          style={{ color: isActive ? theme.colors.accent : theme.colors.text }}
+                        >
+                          {preset.name}
+                        </p>
+                        <p
+                          className="text-xs font-mono mt-0.5"
+                          style={{ color: `${theme.colors.text}55` }}
+                        >
+                          {preset.description}
+                        </p>
+                      </div>
+                      {isActive && (
+                        <span
+                          className="text-xs font-mono px-2 py-0.5 rounded-full"
+                          style={{
+                            backgroundColor: `${theme.colors.accent}20`,
+                            color: theme.colors.accent,
+                          }}
+                        >
+                          activo
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── CUSTOM ── */}
+          {tab === "custom" && (
+            <div className="mt-4 space-y-2">
+              {/* Preview del tema actual */}
+              <div className="mb-4">
+                <p
+                  className="text-xs font-mono uppercase tracking-widest mb-2"
+                  style={{ color: `${theme.colors.text}55` }}
+                >
+                  Vista previa
+                </p>
+                <ThemePreview colors={theme.colors} />
+              </div>
+
+              {/* Separador */}
+              <div
+                className="h-px mb-4"
+                style={{ backgroundColor: theme.colors.border }}
+              />
+
+              {/* Color fields */}
+              <div className="space-y-2">
+                {COLOR_FIELDS.map((field) => (
+                  <ColorRow
+                    key={field.key}
+                    field={field}
+                    value={theme.colors[field.key]}
+                    onChange={updateColor}
+                    theme={theme}
+                  />
+                ))}
+              </div>
+
+              {/* Reset button */}
+              {hasCustom && (
+                <button
+                  onClick={resetToPreset}
+                  className="w-full mt-4 py-2.5 rounded-xl text-sm font-mono border transition-all duration-200"
+                  style={{
+                    borderColor: "rgba(255,100,100,0.3)",
+                    color: "rgba(255,120,120,0.8)",
+                    backgroundColor: "rgba(255,100,100,0.05)",
+                  }}
+                >
+                  ↺ Restaurar preset "{activeTheme.name}"
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+```
+
+==================================================
+## FILE: ./src/hooks/themeContext.js
+```
+import { createContext } from "react";
+
+export const ThemeContext = createContext(null);
+```
+
+==================================================
+## FILE: ./src/hooks/themePresets.js
+```
+export const PRESET_THEMES = [
+    {
+        id: "chromalab",
+        name: "Chromalab",
+        description: "El clásico",
+        colors: {
+            background: "#1E272E",
+            surface: "#243038",
+            accent: "#0984E3",
+            accentSecondary: "#00CEC9",
+            text: "#F5F6FA",
+            border: "rgba(9,132,227,0.25)",
+        },
+    },
+    {
+        id: "midnight",
+        name: "Midnight",
+        description: "Profundo y elegante",
+        colors: {
+            background: "#0D0D1A",
+            surface: "#13132A",
+            accent: "#7C6AF0",
+            accentSecondary: "#F472B6",
+            text: "#E8E8FF",
+            border: "rgba(124,106,240,0.25)",
+        },
+    },
+    {
+        id: "forest",
+        name: "Forest",
+        description: "Natural y sereno",
+        colors: {
+            background: "#0F1F17",
+            surface: "#162B1F",
+            accent: "#00B894",
+            accentSecondary: "#55EFC4",
+            text: "#F0FFF8",
+            border: "rgba(0,184,148,0.25)",
+        },
+    },
+    {
+        id: "sunset",
+        name: "Sunset",
+        description: "Cálido y vibrante",
+        colors: {
+            background: "#1A0F0F",
+            surface: "#2A1515",
+            accent: "#E17055",
+            accentSecondary: "#FDCB6E",
+            text: "#FFF5F0",
+            border: "rgba(225,112,85,0.25)",
+        },
+    },
+    {
+        id: "arctic",
+        name: "Arctic",
+        description: "Limpio y frío",
+        colors: {
+            background: "#F0F4F8",
+            surface: "#FFFFFF",
+            accent: "#0984E3",
+            accentSecondary: "#00CEC9",
+            text: "#1E272E",
+            border: "rgba(9,132,227,0.2)",
+        },
+    },
+    {
+        id: "rose",
+        name: "Rose",
+        description: "Suave y moderno",
+        colors: {
+            background: "#1A0F14",
+            surface: "#251520",
+            accent: "#E84393",
+            accentSecondary: "#FF6B9D",
+            text: "#FFF0F7",
+            border: "rgba(232,67,147,0.25)",
+        },
+    },
+];
+
+function isColorDark(color) {
+    const hex = color.replace("#", "");
+    if (hex.length < 6) return true;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return 0.299 * r + 0.587 * g + 0.114 * b < 128;
+}
+
+export { isColorDark };
+```
+
+==================================================
+## FILE: ./src/hooks/ThemeProvider.jsx
+```
+import { useState, useCallback, createElement } from "react";
+import { ThemeContext } from "./themeContext";
+import { PRESET_THEMES, isColorDark } from "./themePresets";
+
+export default function ThemeProvider({ children }) {
+    const [activeTheme, setActiveTheme] = useState(PRESET_THEMES[0]);
+    const [customColors, setCustomColors] = useState(null);
+
+    const theme = customColors
+        ? { ...activeTheme, colors: { ...activeTheme.colors, ...customColors } }
+        : activeTheme;
+
+    const applyPreset = useCallback((preset) => {
+        setActiveTheme(preset);
+        setCustomColors(null);
+    }, []);
+
+    const updateColor = useCallback((key, value) => {
+        setCustomColors((prev) => ({
+            ...(prev ?? activeTheme.colors),
+            [key]: value,
+        }));
+    }, [activeTheme.colors]);
+
+    const resetToPreset = useCallback(() => setCustomColors(null), []);
+
+    const isDarkTheme = isColorDark(theme.colors.background);
+
+    return createElement(
+        ThemeContext.Provider,
+        { value: { theme, activeTheme, customColors, applyPreset, updateColor, resetToPreset, isDarkTheme } },
+        children
+    );
+}
+```
+
+==================================================
+## FILE: ./src/hooks/useColorExtractor.js
+```
+import { useState, useCallback, useRef } from "react";
+import { extractPixelsFromImage } from "../utils/kmeans";
+
+export function useColorExtractor() {
+  const [colors, setColors] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const workerRef = useRef(null);
+
+  const extract = useCallback((imgElement, colorCount) => {
+    if (!imgElement) return;
+    setLoading(true);
+
+    // Terminar worker previo si todavía estaba corriendo
+    if (workerRef.current) {
+      workerRef.current.terminate();
+    }
+
+    // Extraer pixels en el hilo principal (requiere DOM/canvas)
+    const pixels = extractPixelsFromImage(imgElement);
+
+    // Crear worker — Vite detecta el import.meta.url y lo bundlea correctamente
+    const worker = new Worker(
+      new URL("../utils/kmeans.worker.js", import.meta.url),
+      { type: "module" }
+    );
+    workerRef.current = worker;
+
+    worker.onmessage = (e) => {
+      setColors(e.data);
+      setLoading(false);
+      worker.terminate();
+      workerRef.current = null;
+    };
+
+    worker.onerror = (err) => {
+      console.error("Worker error:", err);
+      setLoading(false);
+      worker.terminate();
+      workerRef.current = null;
+    };
+
+    worker.postMessage({ pixels, k: colorCount });
+  }, []);
+
+  const reset = useCallback(() => {
+    if (workerRef.current) {
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    setColors([]);
+    setLoading(false);
+  }, []);
+
+  return { colors, loading, extract, reset };
+}
+```
+
+==================================================
+## FILE: ./src/hooks/usePaletteHistory.js
+```
+import { useState, useCallback } from "react";
+
+const STORAGE_KEY = "chromalab_history";
+const MAX_HISTORY = 20;
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveToStorage(history) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  } catch {
+    // storage might be unavailable
+  }
+}
+
+export function usePaletteHistory() {
+  const [history, setHistory] = useState(loadFromStorage);
+
+  const savePalette = useCallback((colors, name) => {
+    setHistory((prev) => {
+      const entry = {
+        id: Date.now(),
+        name: name || `Paleta ${prev.length + 1}`,
+        colors,
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [entry, ...prev].slice(0, MAX_HISTORY);
+      saveToStorage(updated);
+      return updated;
+    });
+  }, []);
+
+  const deletePalette = useCallback((id) => {
+    setHistory((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      saveToStorage(updated);
+      return updated;
+    });
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    saveToStorage([]);
+  }, []);
+
+  return { history, savePalette, deletePalette, clearHistory };
+}
+
+```
+
+==================================================
+## FILE: ./src/hooks/useTheme.jsx
+```
+import { useContext } from "react";
+import { ThemeContext } from "./themeContext";
+
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("useTheme must be used inside ThemeProvider");
+  return ctx;
+}
+```
+
+==================================================
+## FILE: ./src/index.css
+```
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Skeleton loading animation — definida una sola vez aquí
+   para evitar que SkeletonCard la inyecte N veces en el DOM */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+```
+
+==================================================
+## FILE: ./src/main.jsx
+```
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App'
+
+createRoot(document.getElementById('root')).render(
+    <StrictMode>
+        <App />
+    </StrictMode>,
+)
+```
+
+==================================================
+## FILE: ./src/utils/colorUtils.js
+```
+const DARK_THRESHOLD = 128;
+
+export function toHex({ r, g, b }) {
+  return (
+    "#" +
+    [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")
+  );
+}
+
+export function toRgb({ r, g, b }) {
+  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+}
+
+export function toHsl({ r, g, b }) {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h, s;
+  const l = (max + min) / 2;
+
+  if (max === min) {
+    h = s = 0;
+  } else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      default: h = ((r - g) / d + 4) / 6;
+    }
+  }
+
+  return `hsl(${Math.round(h * 360)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
+}
+
+export const luminance = ({ r, g, b }) => 0.299 * r + 0.587 * g + 0.114 * b;
+
+export const isDark = (color) => luminance(color) < DARK_THRESHOLD;
+```
+
+==================================================
+## FILE: ./src/utils/exportUtils.js
+```
+import { toHex, toRgb, toHsl } from "./colorUtils";
+
+function downloadFile(filename, content, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+}
+
+export function exportCSS(colors, name = "palette") {
+  const lines = [
+    `:root {`,
+    ...colors.map((c, i) => `  --${name}-${i + 1}: ${toHex(c).toUpperCase()};`),
+    `}`,
+  ];
+  downloadFile(`${name}.css`, lines.join("\n"), "text/css");
+}
+
+export function exportJSON(colors, name = "palette") {
+  const obj = colors.map((c, i) => ({
+    name: `${name}-${i + 1}`,
+    hex: toHex(c).toUpperCase(),
+    rgb: toRgb(c),
+    hsl: toHsl(c),
+  }));
+  downloadFile(`${name}.json`, JSON.stringify(obj, null, 2), "application/json");
+}
+
+export function exportHex(colors, name = "palette") {
+  const txt = colors.map((c) => toHex(c).toUpperCase()).join("\n");
+  downloadFile(`${name}.txt`, txt, "text/plain");
+}
+
+export function exportSVG(colors, name = "palette") {
+  const w = 120,
+    h = 160,
+    gap = 8;
+  const total = colors.length * (w + gap) - gap;
+  const rects = colors
+    .map((c, i) => {
+      const x = i * (w + gap);
+      const hex = toHex(c).toUpperCase();
+      return `<rect x="${x}" y="0" width="${w}" height="${h - 30}" rx="6" fill="${hex}"/>
+<text x="${x + w / 2}" y="${h - 8}" text-anchor="middle" font-family="monospace" font-size="11" fill="#888">${hex}</text>`;
+    })
+    .join("\n");
+
+  downloadFile(
+    `${name}.svg`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${h}">\n${rects}\n</svg>`,
+    "image/svg+xml"
+  );
+}
+
+```
+
+==================================================
+## FILE: ./src/utils/kmeans.js
+```
+// Solo extrae los pixels de la imagen y los devuelve.
+// El algoritmo k-means fue movido a kmeans.worker.js para no bloquear el hilo principal.
+
+export function extractPixelsFromImage(img) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const maxSize = 220;
+  const scale = Math.min(
+    maxSize / img.naturalWidth,
+    maxSize / img.naturalHeight,
+    1
+  );
+  canvas.width = Math.floor(img.naturalWidth * scale);
+  canvas.height = Math.floor(img.naturalHeight * scale);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const pixels = [];
+
+  for (let i = 0; i < data.length; i += 16) {
+    if (data[i + 3] < 128) continue;
+    pixels.push([data[i], data[i + 1], data[i + 2]]);
+  }
+
+  return pixels;
+}
+```
+
+==================================================
+## FILE: ./src/utils/kmeans.worker.js
+```
+// kmeans.worker.js
+// Este archivo corre en un hilo separado (Web Worker).
+// No tiene acceso a DOM, window ni React.
+
+function dist(a, b) {
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+}
+
+function luminanceRaw([r, g, b]) {
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+function kMeans(pixels, k, iterations = 25) {
+    const step = Math.max(1, Math.floor(pixels.length / k));
+    let centers = Array.from(
+        { length: k },
+        (_, i) => [...pixels[(i * step) % pixels.length]]
+    );
+
+    for (let iter = 0; iter < iterations; iter++) {
+        const clusters = Array.from({ length: k }, () => []);
+
+        for (const p of pixels) {
+            let minD = Infinity, idx = 0;
+            for (let c = 0; c < k; c++) {
+                const d = dist(p, centers[c]);
+                if (d < minD) { minD = d; idx = c; }
+            }
+            clusters[idx].push(p);
+        }
+
+        let moved = false;
+        for (let c = 0; c < k; c++) {
+            if (!clusters[c].length) continue;
+            const nc = [
+                clusters[c].reduce((s, p) => s + p[0], 0) / clusters[c].length,
+                clusters[c].reduce((s, p) => s + p[1], 0) / clusters[c].length,
+                clusters[c].reduce((s, p) => s + p[2], 0) / clusters[c].length,
+            ];
+            if (dist(nc, centers[c]) > 1) moved = true;
+            centers[c] = nc;
+        }
+
+        if (!moved) break;
+    }
+
+    return centers
+        .map(([r, g, b]) => ({ r, g, b }))
+        .sort((a, b) => luminanceRaw([a.r, a.g, a.b]) - luminanceRaw([b.r, b.g, b.b]));
+}
+
+// Escuchar mensajes del hilo principal
+self.onmessage = (e) => {
+    const { pixels, k } = e.data;
+    const colors = kMeans(pixels, k);
+    self.postMessage(colors);
+};
+```
+
+==================================================
+## FILE: ./tailwind.config.js
+```
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./src/**/*.{js,jsx}"],
+  theme: { extend: {} },
+  plugins: [],
+}
+```
+
+==================================================
+## FILE: ./vite.config.js
+```
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+
+```
+
