@@ -1,4 +1,4 @@
-import { toHex, toRgb, toHsl, isDark } from "../utils/colorUtils";
+import { toHex, toRgb, toHsl, toCmyk, isDark } from "../utils/colorUtils";
 import { useTheme } from "../hooks/useTheme";
 import CopyButton from "./CopyButton";
 
@@ -9,6 +9,7 @@ export default function ColorCard({ color, index }) {
   const hex = toHex(color).toUpperCase();
   const rgb = toRgb(color);
   const hsl = toHsl(color);
+  const cmyk = toCmyk(color);
   const darkSwatch = isDark(color);
 
   return (
@@ -37,11 +38,12 @@ export default function ColorCard({ color, index }) {
           {hex}
         </p>
 
-        {/* RGB y HSL — ocultos en mobile, visibles en sm+ */}
+        {/* RGB, HSL, CMYK — ocultos en mobile, visibles en sm+ */}
         <div className="hidden sm:flex flex-col space-y-1">
           {[
             { label: "RGB", value: rgb },
             { label: "HSL", value: hsl },
+            { label: "CMYK", value: cmyk },
           ].map(({ label, value }) => (
             <div key={label} className="flex items-center justify-between gap-1">
               <span className="text-xs font-mono shrink-0" style={{ color: `${t.accent}AA` }}>
@@ -57,10 +59,11 @@ export default function ColorCard({ color, index }) {
           ))}
         </div>
 
-        {/* En mobile solo mostramos botones de copia compactos */}
-        <div className="flex sm:hidden gap-1">
+        {/* En mobile mostramos botones de copia compactos */}
+        <div className="flex sm:hidden gap-1 flex-wrap">
           <CopyButton text={rgb} className="flex-1 text-center" />
           <CopyButton text={hsl} className="flex-1 text-center" />
+          <CopyButton text={cmyk} className="flex-1 text-center" />
         </div>
       </div>
     </div>

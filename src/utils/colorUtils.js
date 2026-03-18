@@ -35,6 +35,22 @@ export function toHsl({ r, g, b }) {
   return `hsl(${Math.round(h * 360)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
 }
 
+export function toCmyk({ r, g, b }) {
+  // Negro puro: evitar división por cero
+  if (r === 0 && g === 0 && b === 0) return "cmyk(0%, 0%, 0%, 100%)";
+
+  const rr = r / 255;
+  const gg = g / 255;
+  const bb = b / 255;
+
+  const k = 1 - Math.max(rr, gg, bb);
+  const c = (1 - rr - k) / (1 - k);
+  const m = (1 - gg - k) / (1 - k);
+  const y = (1 - bb - k) / (1 - k);
+
+  return `cmyk(${Math.round(c * 100)}%, ${Math.round(m * 100)}%, ${Math.round(y * 100)}%, ${Math.round(k * 100)}%)`;
+}
+
 export const luminance = ({ r, g, b }) => 0.299 * r + 0.587 * g + 0.114 * b;
 
 export const isDark = (color) => luminance(color) < DARK_THRESHOLD;
